@@ -162,6 +162,7 @@ export function useCloudLinkController() {
           reportUpdateFailure(squashAtomCommandFailure(unlinkResult));
         }
         primaryCloudLinkState.refresh();
+        await refreshRelayEnvironments();
         return false;
       }
     } else {
