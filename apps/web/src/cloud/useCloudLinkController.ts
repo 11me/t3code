@@ -109,6 +109,10 @@ export function useCloudLinkController() {
             }
           : {}),
         actionVariant: "outline",
+        data: {
+          expandableContent: message,
+          expandableLabels: { expand: "Show more", collapse: "Show less" },
+        },
       }),
     );
   };

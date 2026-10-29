@@ -287,6 +287,8 @@ describe("useCloudLinkController", () => {
         data: {
           actionLayout: "stacked-end",
           actionVariant: "outline",
+          expandableContent: message,
+          expandableLabels: { expand: "Show more", collapse: "Show less" },
         },
       }),
     );
