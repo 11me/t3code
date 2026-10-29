@@ -110,6 +110,7 @@ export function useCloudLinkController() {
           : {}),
         actionVariant: "outline",
         data: {
+          copyErrorText: message,
           expandableContent: message,
           expandableLabels: { expand: "Show more", collapse: "Show less" },
         },
