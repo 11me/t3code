@@ -4146,6 +4146,8 @@ interface ActiveClaudeTurnContext {
   nativeWakeStarted: boolean;
   gatedFramesBeforeEcho: number;
   readonly heldRootFrames: Array<SDKMessage>;
+  // Claude can run another model than requested, such as when an organization disallows it.
+  executedModel: string | undefined;
 }
 
 interface ActiveClaudeProviderRetry {
@@ -4243,6 +4245,10 @@ interface PendingClaudeSubagentLaunch {
   readonly model?: string;
   readonly effort?: string;
   readonly ownerToolUseId?: string;
+}
+
+function executedModelField(context: ActiveClaudeTurnContext): { readonly model?: string } {
+  return context.executedModel === undefined ? {} : { model: context.executedModel };
 }
 
 function canonicalClaudeSubagentModel(catalog: ClaudeModelCatalog, model: string): string {
@@ -5190,6 +5196,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               startedAt: context.startedAt,
               completedAt: null,
               tokenUsage,
+              ...executedModelField(context),
             },
           });
         });
@@ -5700,7 +5707,16 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           status: input.status,
           startedAt: input.context.startedAt,
           completedAt: input.completedAt,
+          ...executedModelField(input.context),
         });
+
+        const recordExecutedModel = (context: ActiveClaudeTurnContext, model: unknown) => {
+          const reported = typeof model === "string" ? model.trim() : "";
+          // "<synthetic>" identifies CLI notices, not a model.
+          if (reported.length > 0 && reported !== "<synthetic>") {
+            context.executedModel = resolveClaudeModelSlug(subagentModelCatalog, reported);
+          }
+        };
 
         const buildToolCallArtifacts = (input: {
           readonly context: ActiveClaudeTurnContext | null;
@@ -8568,6 +8584,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }
             return;
           }
+          if (
+            message.type === "system" &&
+            message.subtype === "init" &&
+            context === (yield* Ref.get(activeTurn))
+          ) {
+            recordExecutedModel(context, message.model);
+          }
           const focusedPlugin = claudeFocusRequestedPanePlugin(message);
           if (focusedPlugin !== null && context === (yield* Ref.get(activeTurn))) {
             yield* Effect.logWarning("orchestration-v2.claude-mod-pane-focus-unsupported", {
@@ -8704,6 +8727,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               if (message.message.model && message.message.model !== "<synthetic>") {
                 context.rootModels.add(message.message.model);
               }
+              recordExecutedModel(context, message.message.model);
               // Subagent uuids exist only in the sidechain transcript, so resume and fork cannot target them.
               context.nativeMessageCursor = message.uuid;
               context.latestAssistantRateLimit =
@@ -10804,6 +10828,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               nativeWakeStarted: false,
               gatedFramesBeforeEcho: 0,
               heldRootFrames: [],
+              executedModel: undefined,
             };
             const attachTurn = Effect.gen(function* () {
               querySession.lastTurn = context;
