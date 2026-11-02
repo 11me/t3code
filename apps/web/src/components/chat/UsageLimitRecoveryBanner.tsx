@@ -5,6 +5,7 @@ import {
 } from "@t3tools/contracts";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { deadlineStore } from "@t3tools/client-runtime/clock";
+import { limitRecoveryOwnsSnooze } from "@t3tools/client-runtime/state/thread-execution";
 import { GaugeIcon } from "lucide-react";
 import { useState } from "react";
 import { useDeadlinePassed } from "../../hooks/useDeadline";
@@ -24,15 +25,17 @@ type RecoveryProps = {
 };
 
 export function usageLimitRecoveryBannerItem(props: RecoveryProps): ComposerBannerStackItem {
-  const { runId, resetAt, stoppedAt, timestampFormat } = props;
+  const { runId, resetAt, stoppedAt, recovery, timestampFormat } = props;
   const canSchedule = resetAt !== null && Date.parse(resetAt) > Date.parse(stoppedAt);
+  const resumes =
+    canSchedule && recovery?.runId === runId && recovery.resetAt === resetAt && recovery.autoResume;
   return {
     id: `usage-limit-recovery:${runId}`,
     variant: "warning",
     icon: <GaugeIcon />,
     title: "Usage limit reached",
     description: resetAt
-      ? `Resets ${formatUpcomingTimestamp(resetAt, timestampFormat)}`
+      ? `${resumes ? "Resumes" : "Resets"} ${formatUpcomingTimestamp(resetAt, timestampFormat)}`
       : "Reset time unavailable; retry manually",
     actions: canSchedule ? <RecoveryActions key={`${runId}:${resetAt}`} {...props} /> : null,
   };
@@ -47,13 +50,7 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
   // so a snooze whose reset has passed is no longer active.
   const resetPassed = useDeadlinePassed(resetAt === null ? null : Date.parse(resetAt));
   const snoozed =
-    recovery?.snooze === true &&
-    recovery.runId === runId &&
-    recovery.resetAt === resetAt &&
-    resetAt !== null &&
-    snoozedUntil !== null &&
-    Date.parse(snoozedUntil) === Date.parse(resetAt) &&
-    !resetPassed;
+    limitRecoveryOwnsSnooze({ runId, resetAt, recovery, snoozedUntil }) && !resetPassed;
   async function toggle(action: "resume" | "snooze") {
     if (resetAt === null) return;
     if (action === "snooze" && !snoozed && Date.parse(resetAt) <= Date.now()) {
