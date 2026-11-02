@@ -31,6 +31,7 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
 }
 
 // tsdown SEA needs one chunk (sourcemaps count) and Node >=25.7, so package separately.
+// "bundle" emits the embedded CLI; "bootstrap" emits only bin.ts for linux-arm64 injection.
 const packMode = process.env.T3CODE_PACK_EXE;
 const packBootstrap = packMode === "1" || packMode === "bootstrap";
 const packExecutable = packBootstrap || packMode === "bundle";
@@ -93,6 +94,7 @@ export default mergeConfig(
       outDir: packBootstrap ? "dist-exe" : packExecutable ? cliAssetDir : "dist",
       sourcemap: !packExecutable,
       clean: true,
+      // SEA can only resolve built-ins; keep dynamic imports inside each emitted module.
       ...(packExecutable ? { outputOptions: { codeSplitting: false } } : {}),
       ...(packMode === "1"
         ? {

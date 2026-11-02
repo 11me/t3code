@@ -6,6 +6,8 @@ import * as NodeZlib from "node:zlib";
 
 import { isEntrypoint } from "./entrypoint.ts";
 
+// Loads the CLI outside the launcher's module graph. Packaged builds embed it gzipped; a raw
+// asset measured ~10 MiB more for the long-running server.
 async function loadCliMain(): Promise<typeof import("./binMain.ts")> {
   if (!NodeSea.isSea()) return import("./binMain.ts");
 
@@ -40,8 +42,8 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
-  // The service unit passes no flags; anything else keeps full CLI parsing and errors.
-  if (process.argv[2] === "__service-launcher" && process.argv.length === 3) {
+  // The launcher owns shutdown until its child exits, so it bypasses the Effect CLI runtime.
+  if (process.argv[2] === "__service-launcher") {
     const { runServiceLauncherCli } = await import("./cli/serviceLauncher.ts");
     await runServiceLauncherCli();
   } else {
