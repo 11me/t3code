@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as NodeZlib from "node:zlib";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -127,30 +128,43 @@ const buildExeCmd = Command.make(
         (yield* HostProcess.Platform) === "linux" &&
         (yield* HostProcess.Architecture) === "arm64";
       const spawnCommand = yield* resolveSpawnCommand("vp", ["pack"]);
-      yield* runCommand(
-        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-          cwd: serverDir,
-          env: {
-            ...process.env,
-            T3CODE_PACK_EXE: linuxArm64 ? "bundle" : "1",
-            T3CODE_PACK_EXE_TARGET: target ?? "",
-          },
-          stdout: config.verbose ? "inherit" : "ignore",
-          stderr: "inherit",
-          shell: spawnCommand.shell,
-        }),
-      );
+      const cliAssetDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-asset-" });
+      const pack = (packMode: "bundle" | "bootstrap" | "1") =>
+        runCommand(
+          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+            cwd: serverDir,
+            env: {
+              ...process.env,
+              T3CODE_PACK_EXE: packMode,
+              T3CODE_CLI_ASSET_DIR: cliAssetDir,
+              T3CODE_PACK_EXE_TARGET: target ?? "",
+            },
+            stdout: config.verbose ? "inherit" : "ignore",
+            stderr: "inherit",
+            shell: spawnCommand.shell,
+          }),
+        );
+
+      yield* pack("bundle");
+      const cliMainPath = path.join(cliAssetDir, "binMain.mjs");
+      const cliAssetPath = `${cliMainPath}.gz`;
+      // The executable's mapped asset and V8's decoded source both contribute to server memory.
+      yield* fs.writeFile(cliAssetPath, NodeZlib.gzipSync(yield* fs.readFile(cliMainPath)));
+      yield* pack(linuxArm64 ? "bootstrap" : "1");
 
       // Executables reject non-builtin imports even when bundling succeeds; inspect the emitted graph.
-      const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
-      const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
-      if (specifiers.length > 0) {
-        return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
+      const bootstrapPath = path.join(serverDir, "dist-exe/bin.mjs");
+      for (const bundlePath of [bootstrapPath, cliMainPath]) {
+        const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
+        if (specifiers.length > 0) {
+          return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
+        }
       }
       // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
       if (linuxArm64) {
         yield* injectLinuxArm64Sea({
-          bundlePath,
+          bundlePath: bootstrapPath,
+          cliAssetPath,
           outputPath: path.join(serverDir, "dist-exe/t3"),
           nodeVersion: rootPackageJson.engines.node,
           verbose: config.verbose,
