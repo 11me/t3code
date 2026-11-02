@@ -103,6 +103,8 @@ export default mergeConfig(
               // Node SEA useCodeCache breaks import(), which the server needs.
               seaConfig: {
                 useCodeCache: false,
+                // The bootstrap loads the embedded CLI with require(esm).
+                execArgv: ["--require-module"],
                 assets: { "binMain.mjs.gz": NodePath.join(cliAssetDir, "binMain.mjs.gz") },
               },
             },

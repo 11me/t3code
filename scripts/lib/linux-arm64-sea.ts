@@ -58,6 +58,8 @@ export const injectLinuxArm64Sea = Effect.fn("LinuxArm64Sea.inject")(function* (
       disableExperimentalSEAWarning: true,
       // Node SEA useCodeCache breaks import(), which the server needs.
       useCodeCache: false,
+      // The bootstrap loads the embedded CLI with require(esm).
+      execArgv: ["--require-module"],
     }),
   );
   yield* run(["--experimental-sea-config", configPath], input.verbose);

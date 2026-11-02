@@ -17,6 +17,7 @@ import rootPackageJson from "../../../package.json" with { type: "json" };
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
+  ServerCliBootstrapTooLargeError,
   ServerCliBuildAssetMissingError,
   ServerCliCommandExitError,
   ServerCliDevelopmentIconSourceMissingError,
@@ -159,6 +160,14 @@ const buildExeCmd = Command.make(
         if (specifiers.length > 0) {
           return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
         }
+      }
+      // The service launcher's memory win depends on the CLI staying out of the bootstrap.
+      const bootstrapBytes = (yield* fs.stat(bootstrapPath)).size;
+      if (bootstrapBytes > 1024 * 1024) {
+        return yield* new ServerCliBootstrapTooLargeError({
+          bootstrapPath,
+          bytes: Number(bootstrapBytes),
+        });
       }
       // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
       if (linuxArm64) {

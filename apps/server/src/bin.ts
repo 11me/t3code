@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- The service launcher starts before the CLI runtime.
 import * as NodeModule from "node:module";
 import * as NodeSea from "node:sea";
+import * as NodeURL from "node:url";
 import * as NodeZlib from "node:zlib";
 
 import { isEntrypoint } from "./entrypoint.ts";
@@ -10,9 +11,11 @@ async function loadCliMain(): Promise<typeof import("./binMain.ts")> {
 
   // Keep the executable's module URL so the CLI finds the web client and native packages beside it.
   const require = NodeModule.createRequire(import.meta.url);
+  // require() resolves links in the executable path, such as a Windows junction.
+  const cliUrl = NodeURL.pathToFileURL(require.resolve(process.execPath)).href;
   const hook = NodeModule.registerHooks({
     load(url, context, next) {
-      if (url !== import.meta.url) return next(url, context);
+      if (url !== cliUrl) return next(url, context);
       const asset = Buffer.from(NodeSea.getRawAsset("binMain.mjs.gz"));
       // One byte beyond the size in the gzip trailer lets zlib finish without a second output buffer.
       const chunkSize = asset.readUInt32LE(asset.length - 4) + 1;
