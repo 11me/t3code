@@ -200,7 +200,9 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
       detail: `no 200 from / within 30s\n${stdout}${stderr}`,
     });
   }
-  yield* Effect.log(`[cli-smoke] ${root}: --version passed and serve answered on ${String(port)}.`);
+  yield* Effect.log(
+    `[cli-smoke] ${root}: --version and __service-launcher passed, and serve answered on ${String(port)}.`,
+  );
 });
 
 const command = Command.make(

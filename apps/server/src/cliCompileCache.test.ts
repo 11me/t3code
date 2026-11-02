@@ -22,7 +22,7 @@ it.live("loads the CLI with its cache settings only when the command needs it", 
     `;
     const run = Effect.fn("cliCompileCache.test.run")(function* (
       env: Record<string, string>,
-      command = "--help",
+      args: ReadonlyArray<string> = ["--help"],
     ) {
       const child = yield* spawner.spawn(
         ChildProcess.make(
@@ -32,7 +32,7 @@ it.live("loads the CLI with its cache settings only when the command needs it", 
             "--import",
             `data:text/javascript,${encodeURIComponent(report)}`,
             NodeURL.fileURLToPath(new URL("./bin.ts", import.meta.url)),
-            command,
+            ...args,
           ],
           {
             env: {
@@ -61,10 +61,13 @@ it.live("loads the CLI with its cache settings only when the command needs it", 
     expect(normal.stderr.replaceAll("\\", "/")).toContain(
       `CACHE=${root}/cache/t3code/compile-cache`.replaceAll("\\", "/"),
     );
-    const launcher = yield* run({ T3CODE_HOME: "" }, "__service-launcher");
+    const launcher = yield* run({ T3CODE_HOME: "" }, ["__service-launcher"]);
     expect(launcher.exitCode).toBe(1);
     expect(launcher.stderr).toContain("[service-launcher] T3CODE_HOME is required");
     expect(launcher.stderr).not.toMatch(/LOADED_CLI_MAIN|CACHE=/);
+    const launcherHelp = yield* run({ T3CODE_HOME: "" }, ["__service-launcher", "--help"]);
+    expect(launcherHelp.exitCode).toBe(0);
+    expect(launcherHelp.stderr).toContain("LOADED_CLI_MAIN");
     const appImage = yield* run({ APPIMAGE: `${root}/T3Code.AppImage` });
     expect(appImage.exitCode).toBe(0);
     expect(appImage.stderr).toContain("CACHE=disabled");

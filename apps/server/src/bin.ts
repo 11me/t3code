@@ -43,7 +43,7 @@ if (
   })
 ) {
   // The launcher owns shutdown until its child exits, so it bypasses the Effect CLI runtime.
-  // The service unit passes no arguments; anything else reaches the CLI's usage error.
+  // The service unit passes no arguments; anything else goes to the full CLI.
   if (process.argv[2] === "__service-launcher" && process.argv.length === 3) {
     const { runServiceLauncherCli } = await import("./cli/serviceLauncher.ts");
     await runServiceLauncherCli();
