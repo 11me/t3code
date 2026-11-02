@@ -40,6 +40,7 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
+  // The service unit passes no flags; anything else keeps full CLI parsing and errors.
   if (process.argv[2] === "__service-launcher" && process.argv.length === 3) {
     const { runServiceLauncherCli } = await import("./cli/serviceLauncher.ts");
     await runServiceLauncherCli();
