@@ -276,6 +276,7 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
     } else {
       ReactFontManager.getInstance().getTypeface(fontFamily, Typeface.NORMAL, context.assets)
     }
+    applyLineHeight()
     editor.applyPlaceholder()
   }
 
