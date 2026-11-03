@@ -970,7 +970,6 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
       return rpcInitialItems([snapshotItem]).pipe(
         Stream.concat(completionMarker),
         Stream.concat(eventStreamFrom(snapshotSequence)),
-        withLiveDedupe,
       );
     });
 
@@ -1001,7 +1000,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
         input.afterSequence > highWater ||
         (input.afterSequence < highWater && input.afterSequence < prunedThrough)
       ) {
-        return yield* snapshotThenLive();
+        return withLiveDedupe(yield* snapshotThenLive());
       }
       const hasCreateEvent = yield* applicationEvents
         .hasAgentEvent({
@@ -1031,7 +1030,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
               }),
           ),
         );
-        if (shell !== null) return yield* snapshotThenLive();
+        if (shell !== null) return withLiveDedupe(yield* snapshotThenLive());
       }
       // Fetch the next page only after the transport consumes this one.
       const replay = Stream.paginate(input.afterSequence, (cursor) =>
@@ -1049,11 +1048,11 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             ),
           );
           if (cursor < highWater && cursor < prunedThrough) {
-            return [yield* snapshotThenLive(), Option.none<number>()] as const;
+            return [[yield* snapshotThenLive()], Option.none<number>()] as const;
           }
           const last = items.at(-1);
           return [
-            rpcInitialItems(coalesceLiveUpdatedEvents(items)),
+            [rpcInitialItems(coalesceLiveUpdatedEvents(items))],
             last === undefined || last.sequence >= highWater
               ? Option.none()
               : Option.some(last.sequence),
@@ -1068,7 +1067,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
       );
     }
 
-    return yield* snapshotThenLive();
+    return withLiveDedupe(yield* snapshotThenLive());
   },
 );
 
