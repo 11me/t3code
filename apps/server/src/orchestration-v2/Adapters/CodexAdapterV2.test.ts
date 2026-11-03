@@ -1176,6 +1176,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     onRequest: (method: string, params: unknown) => Effect.Effect<void> = () => Effect.void,
     readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
     beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
+    hooks: Pick<CodexAdapterV2.CodexAdapterV2Options, "onUsageLimits"> = {},
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1243,6 +1244,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               continuationRequests.push(request);
             }).pipe(Effect.andThen(changes.notify)),
         },
+        ...hooks,
       });
       const threadId = ThreadId.make(`thread-${transcript.scenario}`);
       const runtime = yield* adapter.openSession({
@@ -5438,6 +5440,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       expectedClass: "usage_limit",
     },
     {
+      name: "reset-read-callback-defect",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
       name: "stale-read",
       code: "usageLimitExceeded",
       notification: false,
@@ -5547,6 +5555,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         const message = "Provider stopped this request.";
         const errorInfo = "errorInfo" in scenario ? scenario.errorInfo : scenario.code;
         const resetAt = "2033-05-19T07:20:00.000Z";
+        const readsReset =
+          scenario.name === "first-request-reset" || scenario.name === "reset-read-callback-defect";
+        let usageCallbackDied = false;
         const snapshot = {
           type: "emit_inbound" as const,
           label: "account/rateLimits/updated",
@@ -5572,7 +5583,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           scenario: `codex-limit-${scenario.name}`,
           entries: [
             ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
-            ...(scenario.name === "first-request-reset"
+            ...(readsReset
               ? [
                   {
                     ...snapshot,
@@ -5670,7 +5681,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 },
               },
             },
-            ...(scenario.name === "first-request-reset"
+            ...(readsReset
               ? [
                   {
                     type: "expect_outbound" as const,
@@ -5765,12 +5776,25 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ],
         });
         const resetReceipt = yield* Deferred.make<void>();
-        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
-          event.type === "turn_item.updated" &&
-          event.turnItem.type === "error" &&
-          event.turnItem.failure.resetAt === resetAt
-            ? Deferred.succeed(resetReceipt, undefined)
-            : Effect.void,
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "error" &&
+            event.turnItem.failure.resetAt === resetAt
+              ? Deferred.succeed(resetReceipt, undefined)
+              : Effect.void,
+          undefined,
+          undefined,
+          undefined,
+          scenario.name === "reset-read-callback-defect"
+            ? {
+                onUsageLimits: () =>
+                  Effect.sync(() => {
+                    usageCallbackDied = true;
+                  }).pipe(Effect.andThen(Effect.die("usage snapshot unavailable"))),
+              }
+            : {},
         );
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
@@ -5787,8 +5811,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         if (terminal?.status !== "failed") return;
         assert.equal(terminal.failure.class, scenario.expectedClass);
         assert.equal(terminal.threadDisposition, "reusable");
-        if (scenario.name === "deferred-reset" || scenario.name === "first-request-reset")
+        if (scenario.name === "deferred-reset" || readsReset)
           assert.equal(terminal.failure.resetAt, resetAt);
+        assert.equal(usageCallbackDied, scenario.name === "reset-read-callback-defect");
         if (scenario.name === "late-reset") assert.isNull(terminal.failure.resetAt);
         if ("race" in scenario) assert.equal(terminal.failure.resetAt, scenario.race.resetAt);
         if (scenario.name === "matching-details")

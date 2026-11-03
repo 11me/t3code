@@ -4506,8 +4506,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           const read = response.rateLimitsByLimitId?.codex ?? response.rateLimits;
           yield* applyRateLimits((current) => reconcileCodexRateLimitsRead(sent, current, read));
         }).pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning("orchestration-v2.codex-usage-limit-reset-read-failed", { cause }),
+          // A defect here must not drop the terminal that waits on this read; interruption ends it.
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterrupts(cause),
+            (cause) =>
+              Effect.logWarning("orchestration-v2.codex-usage-limit-reset-read-failed", { cause }),
           ),
         );
         // Terminals share one pending read: an overlapping read would take this read's result
