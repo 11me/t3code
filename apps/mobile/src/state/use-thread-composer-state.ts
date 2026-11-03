@@ -674,7 +674,8 @@ export function useThreadComposerState() {
           ? "queue"
           : "auto";
 
-    const freshContext = isFreshSessionPending(threadKey);
+    // A redirect belongs to the approval it answers; the armed session waits for the next message.
+    const freshContext = beforeDispatch === undefined && isFreshSessionPending(threadKey);
     const metadata = makeQueuedMessageMetadata();
     const messageId = MessageId.make(metadata.messageId);
     onWillEnqueue?.();
@@ -698,7 +699,7 @@ export function useThreadComposerState() {
       createdAt: metadata.createdAt,
     });
     clearComposerDraftContent(threadKey, { deferAttachmentCleanup: true });
-    setFreshSessionPending(threadKey, false);
+    if (freshContext) setFreshSessionPending(threadKey, false);
     enqueuePromise.then(
       () => scheduleUnusedComposerAttachmentCleanup(attachments),
       (error: unknown) => {
