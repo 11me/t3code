@@ -5558,6 +5558,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         const readsReset =
           scenario.name === "first-request-reset" || scenario.name === "reset-read-callback-defect";
         let usageCallbackDied = false;
+        const usageUpdates: Array<
+          Parameters<NonNullable<CodexAdapterV2.CodexAdapterV2Options["onUsageLimits"]>>[0]
+        > = [];
         const snapshot = {
           type: "emit_inbound" as const,
           label: "account/rateLimits/updated",
@@ -5738,7 +5741,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                   },
                 ]
               : []),
-            ...(scenario.name === "late-reset" ? [snapshot] : []),
+            ...(scenario.name === "late-reset"
+              ? [{ ...snapshot, label: "account/rateLimits/updated/late" }]
+              : []),
             ...(scenario.name === "deferred-reset"
               ? [
                   {
@@ -5776,17 +5781,23 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ],
         });
         const resetReceipt = yield* Deferred.make<void>();
+        const terminalReceipt = yield* Deferred.make<void>();
         const harness = yield* makeCodexReplayHarness(
           transcript,
           (event) =>
-            event.type === "turn_item.updated" &&
-            event.turnItem.type === "error" &&
-            event.turnItem.failure.resetAt === resetAt
-              ? Deferred.succeed(resetReceipt, undefined)
+            event.type === "turn.terminal"
+              ? Deferred.succeed(terminalReceipt, undefined)
+              : event.type === "turn_item.updated" &&
+                  event.turnItem.type === "error" &&
+                  event.turnItem.failure.resetAt === resetAt
+                ? Deferred.succeed(resetReceipt, undefined)
+                : Effect.void,
+          undefined,
+          undefined,
+          (entry) =>
+            entry.label === "account/rateLimits/updated/late"
+              ? Deferred.await(terminalReceipt)
               : Effect.void,
-          undefined,
-          undefined,
-          undefined,
           scenario.name === "reset-read-callback-defect"
             ? {
                 onUsageLimits: () =>
@@ -5794,7 +5805,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     usageCallbackDied = true;
                   }).pipe(Effect.andThen(Effect.die("usage snapshot unavailable"))),
               }
-            : {},
+            : {
+                onUsageLimits: (update) =>
+                  Effect.sync(() => {
+                    usageUpdates.push(update);
+                  }),
+              },
         );
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
@@ -5816,6 +5832,20 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         assert.equal(usageCallbackDied, scenario.name === "reset-read-callback-defect");
         if (scenario.name === "late-reset") assert.isNull(terminal.failure.resetAt);
         if ("race" in scenario) assert.equal(terminal.failure.resetAt, scenario.race.resetAt);
+        if (scenario.name === "complete-read")
+          assert.deepInclude(usageUpdates.at(-1), {
+            windows: [
+              {
+                id: "secondary",
+                kind: "weekly",
+                label: "Weekly",
+                usedPercent: 100,
+                windowDurationMins: 10_080,
+                resetsAt: resetAt,
+              },
+            ],
+            replaceWindows: true,
+          });
         if (scenario.name === "matching-details")
           assert.equal(terminal.failure.message, "Detailed provider allowance explanation.");
         if (scenario.name === "late-reset") {

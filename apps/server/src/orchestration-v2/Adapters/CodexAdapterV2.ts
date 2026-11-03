@@ -23,6 +23,7 @@ import {
   codexDefaultReasoningEffortOverride,
 } from "../../provider/CodexProvider.ts";
 import {
+  codexRateLimitsToLimits,
   codexRateLimitsToUpdate,
   mergeCodexRateLimits,
   codexUsageLimitResetAt,
@@ -4456,19 +4457,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }).pipe(Effect.orDie),
         );
 
-        // Quota notifications repeat on token ticks; keep this path out of traces.
-        const applyRateLimits = Effect.fnUntraced(function* (
-          reconcile: (
-            previous: CodexRateLimitSnapshot | undefined,
-          ) => CodexRateLimitSnapshot | undefined,
-        ) {
-          const [previous, next] = yield* Ref.modify(rateLimitSnapshot, (previous) => {
-            const next = reconcile(previous);
-            return [[previous, next] as const, next];
-          });
-          const resetAt = codexUsageLimitResetAt(next);
+        const enrichLimitedTurnItems = Effect.fnUntraced(function* () {
+          const resetAt = codexUsageLimitResetAt(yield* Ref.get(rateLimitSnapshot));
+          if (resetAt === null) return;
           for (const item of (yield* Ref.get(limitedTurnItems)).values()) {
-            if (resetAt === null || item.failure.resetAt != null) continue;
+            if (item.failure.resetAt != null) continue;
             const updated = {
               ...item,
               updatedAt: yield* DateTime.now,
@@ -4483,12 +4476,30 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               turnItem: updated,
             });
           }
-          const update =
-            next && next !== previous ? codexRateLimitsToUpdate(next, previous) : undefined;
-          if (update && adapterOptions.onUsageLimits) {
-            const checkedAt = DateTime.formatIso(yield* DateTime.now);
-            yield* adapterOptions.onUsageLimits({ ...update, checkedAt });
-          }
+        });
+
+        // Quota notifications repeat on token ticks; keep this path out of traces.
+        const applyRateLimits = Effect.fnUntraced(function* (
+          reconcile: (
+            previous: CodexRateLimitSnapshot | undefined,
+          ) => CodexRateLimitSnapshot | undefined,
+          replaceWindows = false,
+        ) {
+          const [previous, next] = yield* Ref.modify(rateLimitSnapshot, (previous) => {
+            const next = reconcile(previous);
+            return [[previous, next] as const, next];
+          });
+          yield* enrichLimitedTurnItems();
+          if (!next || next === previous || !adapterOptions.onUsageLimits) return;
+          const checkedAt = DateTime.formatIso(yield* DateTime.now);
+          // A read is the whole account snapshot; notifications only carry what changed.
+          const update = replaceWindows
+            ? {
+                windows: codexRateLimitsToLimits({ snapshot: next, checkedAt }).windows,
+                replaceWindows,
+              }
+            : codexRateLimitsToUpdate(next, previous);
+          if (update) yield* adapterOptions.onUsageLimits({ ...update, checkedAt });
         });
 
         yield* client.handleServerNotification("account/rateLimits/updated", (payload) =>
@@ -4504,7 +4515,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             .request("account/rateLimits/read", null)
             .pipe(Effect.timeout("10 seconds"));
           const read = response.rateLimitsByLimitId?.codex ?? response.rateLimits;
-          yield* applyRateLimits((current) => reconcileCodexRateLimitsRead(sent, current, read));
+          yield* applyRateLimits(
+            (current) => reconcileCodexRateLimitsRead(sent, current, read),
+            true,
+          );
         }).pipe(
           // A defect here must not drop the terminal that waits on this read; interruption ends it.
           Effect.catchCauseIf(
@@ -5912,6 +5926,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             yield* Ref.update(limitedTurnItems, (items) =>
               new Map(items).set(context.providerThread.id, item),
             );
+            // A reset that landed after this terminal read the snapshot found no item to enrich.
+            yield* enrichLimitedTurnItems();
           }
         });
 
