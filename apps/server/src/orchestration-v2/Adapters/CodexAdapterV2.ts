@@ -4457,6 +4457,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }).pipe(Effect.orDie),
         );
 
+        // Repeated quota notifications call this helper; terminal publication owns its own span.
         const enrichLimitedTurnItems = Effect.fnUntraced(function* () {
           const resetAt = codexUsageLimitResetAt(yield* Ref.get(rateLimitSnapshot));
           if (resetAt === null) return;
@@ -5921,6 +5922,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               providerTurnId: current.providerTurnId,
               itemOrdinal: current.failureItemOrdinal,
               failure: current.failure,
+              ...(current.retry === undefined ? {} : { retry: current.retry }),
+              ...(current.retryStartedAt === undefined
+                ? {}
+                : { retryStartedAt: current.retryStartedAt }),
               occurredAt: yield* DateTime.now,
             });
             yield* Ref.update(limitedTurnItems, (items) =>
@@ -5931,7 +5936,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }
         });
 
-        const emitRootTerminal = Effect.fnUntraced(function* (
+        const emitRootTerminal = Effect.fn("CodexAdapterV2.emitRootTerminal")(function* (
           context: ActiveCodexTurnContext,
           event: CodexRootTerminalEvent,
         ) {

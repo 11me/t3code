@@ -5510,7 +5510,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     {
       name: "late-reset",
       code: "usageLimitExceeded",
-      notification: false,
+      notification: true,
       expectedClass: "usage_limit",
     },
     {
@@ -5647,7 +5647,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                       params: {
                         threadId: nativeThreadId,
                         turnId: nativeTurnId,
-                        willRetry: scenario.name === "retry",
+                        willRetry: scenario.name === "retry" || scenario.name === "late-reset",
                         error: {
                           message,
                           codexErrorInfo: errorInfo,
@@ -5797,7 +5797,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           (entry) =>
             entry.label === "account/rateLimits/updated/late"
               ? Deferred.await(terminalReceipt)
-              : Effect.void,
+              : entry.label === "turn/completed" && scenario.name === "late-reset"
+                ? TestClock.adjust("1 second")
+                : Effect.void,
           scenario.name === "reset-read-callback-defect"
             ? {
                 onUsageLimits: () =>
@@ -5857,6 +5859,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               event.turnItem.failure.resetAt === resetAt,
           );
           assert.isDefined(item);
+          assert.equal(terminal.retry?.attempt, 1);
+          if (item?.type === "turn_item.updated" && item.turnItem.type === "error") {
+            assert.deepEqual(item.turnItem.retry, terminal.retry);
+            assert.deepEqual(item.turnItem.startedAt, terminal.retryStartedAt);
+          }
         }
         if (scenario.name === "retry") assert.equal(terminal.retry?.attempt, 1);
         if (scenario.name === "chatgpt-workspace-limit") {
