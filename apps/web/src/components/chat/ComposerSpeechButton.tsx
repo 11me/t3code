@@ -25,7 +25,7 @@ export function shouldShowComposerFooter(
   return phase !== "idle" || (!collapsed && !approval);
 }
 
-function resolveSpeechPresentation(
+export function resolveSpeechPresentation(
   state: VoiceInputState,
   progress: { downloaded: number; total: number } | null,
 ): SpeechPresentation {
