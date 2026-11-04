@@ -17,14 +17,6 @@ type SpeechPresentation = {
   showsSend: boolean;
 };
 
-export function shouldShowComposerFooter(
-  collapsed: boolean,
-  approval: boolean,
-  phase: VoiceInputState["phase"],
-): boolean {
-  return phase !== "idle" || (!collapsed && !approval);
-}
-
 export function resolveSpeechPresentation(
   state: VoiceInputState,
   progress: { downloaded: number; total: number } | null,
