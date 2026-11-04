@@ -112,6 +112,7 @@ export function useCloudLinkController() {
         data: {
           copyErrorText: message,
           expandableContent: message,
+          expandableDescriptionTrigger: true,
           expandableLabels: { expand: "Show more", collapse: "Show less" },
         },
       }),
