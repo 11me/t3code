@@ -192,7 +192,11 @@ import { useThreadContextDrop, threadContextDropTargetProps } from "./threadCont
 import { readThreadShell } from "~/state/entities";
 import { useLinkedEnvironments } from "~/state/peerLinks";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import type { ComposerContextRecord, ThreadPullRequestLink } from "@t3tools/contracts";
+import type {
+  ComposerContextRecord,
+  PromptSuggestion,
+  ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import { threadContextAttachment } from "~/lib/threadContextAttachment";
 import {
   type ComposerCommandItem,
@@ -226,6 +230,7 @@ import {
   type ExpandedImagePreview,
 } from "./ExpandedImagePreview";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
+import { Kbd } from "../ui/kbd";
 import {
   getComposerPromptLengthValidationMessage,
   getComposerSubmissionValidationMessage,
@@ -383,6 +388,9 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  /** Claude's suggested next prompt for this thread, or null. */
+  promptSuggestion: PromptSuggestion | null;
+  onDismissPromptSuggestion: (id: string) => void;
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -1208,6 +1216,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const showComposerTopDrawer =
     pendingUserInputs.length > 0 ||
     (!isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan !== null);
+  // Ghost text for an idle, empty composer that nothing else is asking for.
+  const promptSuggestion =
+    props.promptSuggestion !== null &&
+    phase === "ready" &&
+    canOperateThread &&
+    !isComposerApprovalState &&
+    !isSendBusy &&
+    !showComposerTopDrawer &&
+    !isComposerCollapsedMobile &&
+    prompt.length === 0 &&
+    !composerSendState.hasSendableContent
+      ? props.promptSuggestion
+      : null;
   const showCollapsedMobilePromptRow = isComposerCollapsedMobile;
   const showComposerAttachAction =
     fileStagingLimit !== null &&
@@ -2329,6 +2350,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerTerminalContextsRef,
       composerPreviewAnnotations,
       composerReviewComments,
+      promptSuggestion:
+        promptSuggestion === null
+          ? null
+          : {
+              text: promptSuggestion.text,
+              dismiss: () => props.onDismissPromptSuggestion(promptSuggestion.id),
+            },
       composerEditorRef,
       composerMenuOpenRef,
       composerMenuItemsRef,
@@ -3536,8 +3564,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                               ? "Choose a project above to start a thread"
                               : showProviderUnavailable
                                 ? "Enable a provider in Settings to send a message"
-                                : DEFAULT_COMPOSER_PLACEHOLDER
+                                : (promptSuggestion?.text ?? DEFAULT_COMPOSER_PLACEHOLDER)
                     }
+                    placeholderHint={promptSuggestion !== null ? <Kbd>→</Kbd> : undefined}
                     disabled={
                       projectSelectionRequired ||
                       isChoiceOnlyPendingQuestion ||

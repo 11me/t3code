@@ -1,5 +1,6 @@
 import {
   ORCHESTRATION_V2_WS_METHODS,
+  WS_METHODS,
   type EnvironmentId,
   type ThreadId,
   type OrchestrationGetTurnDiffResult,
@@ -115,6 +116,11 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
           ),
       }),
     },
+    promptSuggestion: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:orchestration:prompt-suggestion",
+      tag: WS_METHODS.subscribePromptSuggestion,
+      idleTtlMs: 0,
+    }),
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnDiff,

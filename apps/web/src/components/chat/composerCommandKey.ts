@@ -56,6 +56,8 @@ export function composerCommandKeyHandler(input: {
   readonly composerTerminalContextsRef: ChatComposerProps["composerTerminalContextsRef"];
   readonly composerPreviewAnnotations: ReadonlyArray<PreviewAnnotationPayload>;
   readonly composerReviewComments: ReadonlyArray<ReviewCommentContext>;
+  /** The predicted next message, offered only while it is showing in an empty composer. */
+  readonly promptSuggestion: { readonly text: string; readonly dismiss: () => void } | null;
   readonly composerEditorRef: RefObject<ComposerPromptEditorHandle | null>;
   readonly composerMenuOpenRef: RefObject<boolean>;
   readonly composerMenuItemsRef: RefObject<ComposerCommandItem[]>;
@@ -105,6 +107,7 @@ export function composerCommandKeyHandler(input: {
     composerTerminalContextsRef,
     composerPreviewAnnotations,
     composerReviewComments,
+    promptSuggestion,
     composerEditorRef,
     composerMenuOpenRef,
     composerMenuItemsRef,
@@ -217,6 +220,25 @@ export function composerCommandKeyHandler(input: {
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive =
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
+    if (
+      promptSuggestion !== null &&
+      !menuIsActive &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      promptRef.current === ""
+    ) {
+      const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+      // Accepting only fills the draft; the user still reviews it and sends.
+      if (plain && (key === "Tab" || key === "ArrowRight")) {
+        promptSuggestion.dismiss();
+        replacePromptFromHistory(promptSuggestion.text);
+        return true;
+      }
+      if (plain && key === "Escape") {
+        promptSuggestion.dismiss();
+        return true;
+      }
+    }
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
       dismissComposerTrigger(trigger);
