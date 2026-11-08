@@ -4,6 +4,8 @@
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM_REPO="pingdotgg/t3code"
+# Upstream nightlies plus your changes. Builds come from it; `main` mirrors the nightlies.
+BASE_BRANCH="patched"
 APP_NAME="T3 Code (Nightly)"
 APP_PATH="/Applications/$APP_NAME.app"
 CACHE_DIR="${T3CODE_FORK_CACHE:-$HOME/.cache/t3code-fork}"
