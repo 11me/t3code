@@ -131,7 +131,7 @@ export interface ThreadLaunchInput {
 
 type PreparationInput = Pick<
   ThreadLaunchInput,
-  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage"
+  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage" | "linkOrigin"
 > & {
   readonly reusedWorktree?: { readonly baseRef: string };
 };
@@ -571,6 +571,7 @@ const make = Effect.gen(function* () {
     let runReleased = false;
     // Stop background renames before forgetting worktrees; completed renames record them again.
     let branchRename: Fiber.Fiber<unknown> | null = null;
+    let stopBranchName: Effect.Effect<void> = Effect.void;
     if (input.workspaceStrategy.type === "worktree") {
       yield* setupTracker.begin({
         threadId,
@@ -662,6 +663,19 @@ const make = Effect.gen(function* () {
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
           : null;
+      // The agent waits for this LLM call; start it now so it overlaps fetch, checkout and setup.
+      const branchName =
+        reused === undefined &&
+        initialMessage !== undefined &&
+        (input.workspaceStrategy.type === "worktree" || worktreePath !== null) &&
+        branch !== null &&
+        (generatedTemporaryBranch || isTemporaryWorktreeBranch(branch))
+          ? yield* generateBranchNameFor(
+              worktreePath ?? project.workspaceRoot,
+              initialMessage,
+            ).pipe(Effect.forkIn(preparationScope))
+          : null;
+      if (branchName !== null) stopBranchName = Fiber.interrupt(branchName);
       if (input.workspaceStrategy.type === "worktree") {
         const taskPlan = yield* taskFolders
           .plan({ projectId: project.id, repositories: input.workspaceStrategy.repositories })
@@ -839,6 +853,7 @@ const make = Effect.gen(function* () {
                   projectStart: { refName: startRef, baseRefName },
                   baseBranch: input.workspaceStrategy.baseRef,
                   startFromOrigin: input.workspaceStrategy.startFromOrigin === true,
+                  projectCommands: TaskFolders.linkRunsProjectCommands(input.linkOrigin),
                   projectProgress: progress,
                   onClaimed: (taskFolder, claimedBranch) =>
                     Effect.sync(() => {
@@ -898,7 +913,11 @@ const make = Effect.gen(function* () {
       ) {
         const oldBranch = branch;
         const worktreeCwd = worktreePath;
-        branchRename = yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
+        const generatedName =
+          branchName === null
+            ? generateBranchNameFor(worktreeCwd, initialMessage)
+            : Fiber.join(branchName);
+        branchRename = yield* generatedName.pipe(
           Effect.flatMap(({ branch: newBranch, exactName }) =>
             Effect.suspend(
               (): Effect.Effect<
@@ -995,6 +1014,8 @@ const make = Effect.gen(function* () {
           ),
           Effect.forkIn(preparationScope),
         );
+      } else {
+        yield* stopBranchName;
       }
 
       if (runId !== null && worktreePath !== null) {
@@ -1113,6 +1134,8 @@ const make = Effect.gen(function* () {
       Effect.onError((cause) =>
         Effect.gen(function* () {
           const cancelled = Cause.hasInterruptsOnly(cause);
+          // Not yet handed to a rename, so nothing will use the name.
+          if (branchRename === null) yield* stopBranchName;
           yield* setupTracker.finish(
             threadId,
             cancelled ? "cancelled" : "failed",
@@ -1128,6 +1151,7 @@ const make = Effect.gen(function* () {
             ((cancelled && !runReleased) || !workspaceRecorded)
           ) {
             if (branchRename !== null) yield* Fiber.interrupt(branchRename);
+            yield* stopBranchName;
             const removedPath = createdWorktreePath;
             const removedBranch = createdBranch;
             const removedTaskFolder = createdTaskFolder;
@@ -1154,6 +1178,7 @@ const make = Effect.gen(function* () {
                       root: removedTaskFolder,
                       force: true,
                       forget: true,
+                      projectCommands: TaskFolders.linkRunsProjectCommands(input.linkOrigin),
                       deleteBranch: removedBranch ?? undefined,
                     })
                     .pipe(
@@ -1586,8 +1611,17 @@ const make = Effect.gen(function* () {
                       branch: workspaceStrategy.branch,
                     }
                   : workspaceStrategy;
+            // The thread's link decides, as it does when preparation is retried: a request
+            // that reuses a thread names none.
+            const { linkOrigin: _requestLinkOrigin, ...preparation } = input;
             yield* schedulePreparation(
-              { ...input, workspaceStrategy: preparationStrategy },
+              {
+                ...preparation,
+                workspaceStrategy: preparationStrategy,
+                ...(committedThread.linkOrigin === undefined
+                  ? {}
+                  : { linkOrigin: committedThread.linkOrigin }),
+              },
               threadId,
               runId,
             );
@@ -1682,6 +1716,7 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         projectId: thread.projectId,
         workspaceStrategy: reuse?.strategy ?? workspacePreparation,
+        ...(thread.linkOrigin === undefined ? {} : { linkOrigin: thread.linkOrigin }),
         ...(reuse === null ? {} : { reusedWorktree: reuse.reusedWorktree }),
         ...(message === undefined
           ? {}
